@@ -5,8 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: moviepilot-plexrename:latest
-    container_name: moviepilot-plexrename
+    image: plexrename:latest
+    container_name: plexrename
     restart: unless-stopped
     network_mode: host
     environment:

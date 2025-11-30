@@ -10,13 +10,13 @@
 
 ## 构建镜像
 ```bash
-docker build -t moviepilot-plexrename .
+docker build -t plexrename .
 ```
 
 ## 运行示例
 ```bash
 docker run -d \
-  --name moviepilot-plexrename \
+  --name plexrename \
   --network host \
   -e TMDB_API_KEY=你的TMDBKEY \
   -e SOURCE_DIR=/downloads \
@@ -26,7 +26,7 @@ docker run -d \
   -e PUID=1000 -e PGID=1000 \
   -v /share:/share \  # 确保源/目标在同一文件系统以支持硬链接
   -v $(pwd)/config:/config \
-  moviepilot-plexrename
+  plexrename
 ```
 
 也可以使用 `docker-compose.yml` 中的示例，按需修改 `SOURCE_DIR`、`DEST_DIR` 和挂载。
