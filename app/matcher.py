@@ -133,7 +133,7 @@ class PriorityMatcher:
         MatchingRule(
             priority=7,
             name="版本识别",
-            pattern=r'(导演剪辑版|加长版|未删减版|(?i)Extended|Director\'?s?\s*Cut|Unrated)',
+            pattern=r'(导演剪辑版|加长版|未删减版|Extended|Director\'?s?\s*Cut|Unrated)',
             match_type=MatchType.EDITION
         )
     ]

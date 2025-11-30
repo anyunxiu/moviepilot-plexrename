@@ -9,11 +9,14 @@ PlexRename 主程序 - 简化版
 5. 支持目录监控
 """
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
+from logging.handlers import RotatingFileHandler
+from pydantic import BaseModel
 
 # 配置日志
 logging.basicConfig(
@@ -25,6 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from .config import get_settings, Settings
+from .config import save_settings, DirectoryConfig
 from .matcher import PriorityMatcher
 from .metadata import MetadataClient
 from .organizer import FileOrganizer, TransferMode
@@ -37,6 +41,7 @@ matcher: PriorityMatcher = None
 metadata_client: MetadataClient = None
 organizer: FileOrganizer = None
 monitor: DirectoryMonitor = None
+LOG_FILE_PATH = "/app/logs/plexrename.log"
 
 
 @asynccontextmanager
@@ -50,11 +55,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logging.getLogger().setLevel(settings.LOG_LEVEL)
     logger.setLevel(settings.LOG_LEVEL)
+    _setup_file_logging(settings.LOG_LEVEL)
     
     # 初始化组件
     matcher = PriorityMatcher()
     metadata_client = MetadataClient(settings.TMDB_API_KEY)
-    
+
     try:
         transfer_mode = TransferMode(settings.TRANSFER_MODE)
     except ValueError:
@@ -71,21 +77,7 @@ async def lifespan(app: FastAPI):
     
     # 添加配置的目录到监控
     for dir_config in settings.DIRECTORIES:
-        if not dir_config.enabled:
-            continue
-        
-        def create_callback(dest_path):
-            def callback(file_path):
-                organizer.organize_file(file_path, dest_path)
-            return callback
-        
-        monitor.add_watch(
-            dir_config.source_path,
-            create_callback(dir_config.dest_path),
-            settings.MEDIA_EXTENSIONS
-        )
-        
-        logger.info(f"Monitoring: {dir_config.name} ({dir_config.source_path})")
+        _add_monitor_for_directory(dir_config)
     
     # 启动监控
     monitor.start()
@@ -97,6 +89,7 @@ async def lifespan(app: FastAPI):
     # 清理
     logger.info("Shutting down PlexRename...")
     monitor.stop()
+    _remove_file_logging()
 
 
 # FastAPI 应用
@@ -171,6 +164,68 @@ def get_config():
     }
 
 
+@app.get("/api/logs")
+def get_logs(lines: int = Query(200, ge=10, le=1000)):
+    """获取最近日志"""
+    if not os.path.exists(LOG_FILE_PATH):
+        return {"logs": [], "path": LOG_FILE_PATH}
+    
+    try:
+        with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.readlines()
+        tail = content[-lines:]
+        return {"logs": tail, "path": LOG_FILE_PATH}
+    except Exception as e:
+        logger.error(f"Failed to read log file: {e}")
+        return {"logs": [], "path": LOG_FILE_PATH, "error": str(e)}
+
+
+class DirectoryPayload(BaseModel):
+    name: str
+    source_path: str
+    dest_path: str
+    media_type: str = "auto"
+    enabled: bool = True
+
+
+@app.post("/api/directories")
+def add_directory_api(payload: DirectoryPayload):
+    """添加监控目录并立即开始监控"""
+    global settings
+    if any(d.source_path == payload.source_path for d in settings.DIRECTORIES):
+        raise HTTPException(status_code=400, detail="该源目录已存在")
+    
+    dir_config = DirectoryConfig(
+        name=payload.name,
+        source_path=payload.source_path,
+        dest_path=payload.dest_path,
+        media_type=payload.media_type,
+        enabled=payload.enabled
+    )
+    settings.DIRECTORIES.append(dir_config)
+    save_settings(settings)
+    
+    # 即时添加监控
+    _add_monitor_for_directory(dir_config)
+    
+    return {"message": "added", "directory": dir_config}
+
+
+@app.delete("/api/directories")
+def remove_directory_api(source_path: str = Query(..., description="要移除的源目录")):
+    """移除监控目录并停止监控"""
+    global settings
+    before = len(settings.DIRECTORIES)
+    settings.DIRECTORIES = [d for d in settings.DIRECTORIES if d.source_path != source_path]
+    if len(settings.DIRECTORIES) == before:
+        raise HTTPException(status_code=404, detail="未找到该源目录")
+    
+    save_settings(settings)
+    if monitor:
+        monitor.remove_watch(source_path)
+    return {"message": "removed", "source_path": source_path}
+
+
 # 静态文件（Web UI）
 try:
     app.mount("/", StaticFiles(directory="web", html=True, check_dir=False), name="static")
@@ -181,3 +236,52 @@ except RuntimeError:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+def _setup_file_logging(level: str):
+    """添加文件日志处理器"""
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
+        handler = RotatingFileHandler(LOG_FILE_PATH, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8")
+        formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(name)s - %(message)s')
+        handler.setFormatter(formatter)
+        handler.setLevel(level)
+        
+        root_logger = logging.getLogger()
+        root_logger.addHandler(handler)
+    except Exception as e:
+        logger.error(f"Failed to setup file logging: {e}")
+
+
+def _remove_file_logging():
+    """移除文件日志处理器（优雅退出时调用）"""
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if isinstance(handler, RotatingFileHandler):
+            root_logger.removeHandler(handler)
+            handler.close()
+
+
+def _add_monitor_for_directory(dir_config: DirectoryConfig):
+    """启动指定目录的监控并注册回调"""
+    if not dir_config.enabled:
+        return
+    
+    if not monitor:
+        logger.warning("Monitor not initialized")
+        return
+    
+    def callback(file_path: str):
+        if not organizer:
+            logger.warning("Organizer not ready")
+            return
+        organizer.organize_file(file_path, dir_config.dest_path)
+    
+    extensions = settings.MEDIA_EXTENSIONS if settings else ('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.iso')
+    added = monitor.add_watch(
+        dir_config.source_path,
+        callback,
+        extensions
+    )
+    if added:
+        logger.info(f"Monitoring: {dir_config.name} ({dir_config.source_path})")

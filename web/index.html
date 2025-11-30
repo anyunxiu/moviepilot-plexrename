@@ -185,6 +185,79 @@
             margin-bottom: 10px;
         }
 
+        .logs {
+            background: rgba(0, 0, 0, 0.75);
+            color: #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 13px;
+            height: 320px;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+            line-height: 1.5;
+            margin-top: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .logs-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 20px;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .logs-header .title {
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logs-header button {
+            background: #10b981;
+            border: none;
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .logs-header button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .form-grid input, .form-grid select {
+            padding: 10px 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 100%;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .btn.secondary {
+            background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -238,6 +311,23 @@
 
             <div class="directories-list">
                 <h2 style="margin-bottom: 20px; color: #333;">📁 监控目录</h2>
+                
+                <form onsubmit="addDirectory(event)" style="margin-bottom: 18px;">
+                    <div class="form-grid">
+                        <input id="dirName" placeholder="名称，如：DJ" required>
+                        <input id="dirSource" placeholder="源目录，例如 /share/DJ" required>
+                        <input id="dirDest" placeholder="目标目录，例如 /share/Link/DJ" required>
+                        <select id="dirMediaType">
+                            <option value="auto">自动</option>
+                            <option value="movie">电影</option>
+                            <option value="tv">剧集</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn" style="width:auto;">添加目录</button>
+                    </div>
+                </form>
+
                 <div id="directoriesList"></div>
             </div>
 
@@ -245,11 +335,20 @@
                 <h2 style="margin-bottom: 20px; color: #333;">📊 扫描结果</h2>
                 <div id="resultsList"></div>
             </div>
+
+            <div class="logs-section">
+                <div class="logs-header">
+                    <div class="title">🪵 日志</div>
+                    <button onclick="refreshLogs()">刷新日志</button>
+                </div>
+                <div id="logs" class="logs">日志加载中...</div>
+            </div>
         </div>
     </div>
 
     <script>
         let isScanning = false;
+        let logTimer = null;
 
         async function fetchStatus() {
             try {
@@ -275,7 +374,11 @@
                 if (data.directories && data.directories.length > 0) {
                     dirList.innerHTML = data.directories.map(dir => `
                         <div class="directory-item">
-                            <div class="directory-name">${dir.name} ${dir.enabled ? '✅' : '⏸️'}</div>
+                            <div class="directory-name">
+                                ${dir.name} ${dir.enabled ? '✅' : '⏸️'}
+                                <button style="float:right; background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;"
+                                    onclick="removeDirectory(decodeURIComponent('${encodeURIComponent(dir.source_path)}'))">删除</button>
+                            </div>
                             <div class="directory-path">
                                 📥 ${dir.source_path}<br>
                                 📤 ${dir.dest_path}
@@ -339,9 +442,13 @@
 
         async function init() {
             try {
-                await Promise.all([fetchStatus(), fetchConfig()]);
+                await Promise.all([fetchStatus(), fetchConfig(), fetchLogs()]);
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
+
+                // 定期刷新状态和日志
+                logTimer = setInterval(fetchLogs, 5000);
+                setInterval(fetchStatus, 5000);
             } catch (error) {
                 document.getElementById('loading').textContent = '加载失败: ' + error.message;
             }
@@ -350,8 +457,69 @@
         // 初始化
         init();
 
-        // 定期刷新状态
-        setInterval(fetchStatus, 5000);
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs?lines=300');
+                const data = await res.json();
+                const logsDiv = document.getElementById('logs');
+                if (data.logs && data.logs.length) {
+                    logsDiv.textContent = data.logs.join('');
+                } else {
+                    logsDiv.textContent = '暂无日志';
+                }
+                // 滚动到底部
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+            } catch (e) {
+                document.getElementById('logs').textContent = '日志加载失败: ' + e.message;
+            }
+        }
+
+        function refreshLogs() {
+            fetchLogs();
+        }
+
+        async function addDirectory(event) {
+            event.preventDefault();
+            const name = document.getElementById('dirName').value.trim();
+            const source_path = document.getElementById('dirSource').value.trim();
+            const dest_path = document.getElementById('dirDest').value.trim();
+            const media_type = document.getElementById('dirMediaType').value;
+            if (!name || !source_path || !dest_path) return;
+
+            try {
+                const res = await fetch('/api/directories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, source_path, dest_path, media_type })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    alert('添加失败: ' + (data.detail || res.statusText));
+                    return;
+                }
+                await fetchConfig();
+                document.getElementById('dirName').value = '';
+                document.getElementById('dirSource').value = '';
+                document.getElementById('dirDest').value = '';
+            } catch (e) {
+                alert('添加失败: ' + e.message);
+            }
+        }
+
+        async function removeDirectory(sourcePath) {
+            if (!confirm(`确认删除监控目录：${sourcePath} ？`)) return;
+            try {
+                const res = await fetch(`/api/directories?source_path=${encodeURIComponent(sourcePath)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    const data = await res.json();
+                    alert('删除失败: ' + (data.detail || res.statusText));
+                    return;
+                }
+                await fetchConfig();
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
     </script>
 </body>
 </html>
