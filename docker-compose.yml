@@ -2,22 +2,29 @@ version: "3.8"
 
 services:
   plexrename:
-    build: .
-    image: plexrename:latest
-    container_name: plexrename
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: moviepilot-plexrename:latest
+    container_name: moviepilot-plexrename
     restart: unless-stopped
     network_mode: host
     environment:
       - TZ=Asia/Shanghai
-      - PUID=0
-      - PGID=0
+      - PUID=1000
+      - PGID=1000
       - TMDB_API_KEY=${TMDB_API_KEY}
+      - SOURCE_DIR=/DJ           # moviepilot 下载完成路径
+      - DEST_DIR=/DJLink         # Plex 媒体库路径（硬链接建议同一挂载点）
+      - DIRECTORY_NAME=DJ
+      - MEDIA_TYPE=auto          # auto/movie/tv
+      - TRANSFER_MODE=hardlink   # hardlink/copy/move/symlink
       - LOG_LEVEL=INFO
     volumes:
       - ./config:/config
-      - /share/DJ:/DJ:ro          # 源目录（只读）
-      - /share/Link/DJ:/DJLink    # 目标目录（硬链接需要同一挂载点，这里假设是不同路径演示）
-      # 如果要做硬链接，建议挂载父目录，例如：
+      - /share/DJ:/DJ:ro          # 源目录（只读，硬链接需与目标同一文件系统）
+      - /share/Link/DJ:/DJLink    # 目标目录
+      # 若要硬链接，推荐挂载同一父目录，例如：
       # - /share:/share
     logging:
       driver: "json-file"

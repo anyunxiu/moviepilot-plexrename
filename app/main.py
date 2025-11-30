@@ -48,12 +48,18 @@ async def lifespan(app: FastAPI):
     
     # 加载配置
     settings = get_settings()
+    logging.getLogger().setLevel(settings.LOG_LEVEL)
+    logger.setLevel(settings.LOG_LEVEL)
     
     # 初始化组件
     matcher = PriorityMatcher()
     metadata_client = MetadataClient(settings.TMDB_API_KEY)
     
-    transfer_mode = TransferMode(settings.TRANSFER_MODE)
+    try:
+        transfer_mode = TransferMode(settings.TRANSFER_MODE)
+    except ValueError:
+        logger.warning(f"Invalid TRANSFER_MODE '{settings.TRANSFER_MODE}', fallback to hardlink")
+        transfer_mode = TransferMode.HARDLINK
     organizer = FileOrganizer(
         metadata_client=metadata_client,
         matcher=matcher,
@@ -167,7 +173,7 @@ def get_config():
 
 # 静态文件（Web UI）
 try:
-    app.mount("/", StaticFiles(directory="web/dist", html=True), name="static")
+    app.mount("/", StaticFiles(directory="web", html=True, check_dir=False), name="static")
 except RuntimeError:
     logger.warning("Web UI not found, only API available")
 

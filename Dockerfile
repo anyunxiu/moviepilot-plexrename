@@ -1,41 +1,38 @@
-# 使用轻量级 Python 镜像
+# moviepilot v2 风格的硬链接/重命名镜像，适用于 Plex 识别
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
-    PUID=0 \
-    PGID=0
+    CONFIG_DIR=/config \
+    PUID=1000 \
+    PGID=1000
 
-# 安装系统依赖
+# 系统依赖：gosu 用于降权，tzdata 用于时区
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gosu \
+    tzdata \
+    ca-certificates \
     gcc \
     libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 创建用户
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-
-# 复制依赖文件
+# 复制依赖并安装
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制应用代码
+# 复制应用代码与 Web 资源
 COPY app /app/app
 COPY web /app/web
 
-# 创建数据目录
-RUN mkdir -p /config /data /app/logs && \
-    chown -R appuser:appuser /config /data /app
+# 入口脚本负责按 PUID/PGID 运行并生成默认配置
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# 声明卷
 VOLUME ["/config", "/data"]
-
-# 暴露端口
 EXPOSE 8000
 
-# 启动命令
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

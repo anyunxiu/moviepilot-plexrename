@@ -51,6 +51,42 @@ class Settings(BaseModel):
 _settings: Optional[Settings] = None
 
 
+def _load_directories_from_env() -> List[DirectoryConfig]:
+    """
+    从环境变量加载目录配置。
+    
+    支持两种方式：
+    1. DIRECTORIES_JSON 提供完整数组
+    2. SOURCE_DIR/DEST_DIR 快速配置单个目录
+    """
+    directories: List[DirectoryConfig] = []
+    
+    # 完整 JSON 配置
+    if os.getenv("DIRECTORIES_JSON"):
+        try:
+            data = json.loads(os.getenv("DIRECTORIES_JSON"))
+            for item in data:
+                directories.append(DirectoryConfig(**item))
+            logger.info(f"Loaded {len(directories)} directories from DIRECTORIES_JSON")
+        except Exception as e:
+            logger.error(f"Failed to parse DIRECTORIES_JSON: {e}")
+        return directories
+    
+    # 简单环境变量配置
+    source = os.getenv("SOURCE_DIR")
+    dest = os.getenv("DEST_DIR")
+    if source and dest:
+        directories.append(DirectoryConfig(
+            name=os.getenv("DIRECTORY_NAME", "moviepilot"),
+            source_path=source,
+            dest_path=dest,
+            media_type=os.getenv("MEDIA_TYPE", "auto")
+        ))
+        logger.info(f"Loaded directory from env: {source} -> {dest}")
+    
+    return directories
+
+
 def get_settings() -> Settings:
     """获取全局配置实例"""
     global _settings
@@ -74,29 +110,35 @@ def load_settings(config_path: str = None) -> Settings:
     if not os.path.exists(config_path):
         logger.warning(f"Config file not found: {config_path}, using defaults")
         settings = Settings()
-        
-        # 从环境变量读取 API 密钥
-        settings.TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
-        
-        return settings
+    else:
+        # 加载配置文件
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            settings = Settings(**config_data)
+            
+            logger.info(f"Configuration loaded from: {config_path}")
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            settings = Settings()
     
-    # 加载配置文件
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
-        
-        settings = Settings(**config_data)
-        
-        # 环境变量优先级更高
-        if os.getenv("TMDB_API_KEY"):
-            settings.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-        
-        logger.info(f"Configuration loaded from: {config_path}")
-        return settings
-        
-    except Exception as e:
-        logger.error(f"Failed to load config: {e}")
-        return Settings()
+    # 环境变量优先级更高
+    if os.getenv("TMDB_API_KEY"):
+        settings.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+    
+    if os.getenv("TRANSFER_MODE"):
+        settings.TRANSFER_MODE = os.getenv("TRANSFER_MODE")
+    
+    if os.getenv("LOG_LEVEL"):
+        settings.LOG_LEVEL = os.getenv("LOG_LEVEL")
+    
+    # 支持通过环境变量直接注入目录配置
+    env_directories = _load_directories_from_env()
+    if env_directories:
+        settings.DIRECTORIES = env_directories
+    
+    return settings
 
 
 def save_settings(settings: Settings, config_path: str = None):
