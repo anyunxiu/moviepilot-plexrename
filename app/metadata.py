@@ -73,7 +73,12 @@ class MetadataClient:
             logger.error(f"Metadata search failed: {e}")
             return self._fallback_metadata(title, year, media_type)
     
-    def _search_movie(self, title: str, year: Optional[str], tmdb_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    def _search_movie(
+        self,
+        title: str,
+        year: Optional[str],
+        tmdb_id: Optional[int],
+    ) -> Optional[Dict[str, Any]]:
         """搜索电影"""
         try:
             # 精确 ID 查询
