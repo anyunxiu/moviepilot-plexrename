@@ -108,9 +108,9 @@ app = FastAPI(
 )
 
 
-@app.get("/")
+@app.get("/api/health")
 def read_root():
-    """根路径"""
+    """健康检查"""
     return {"message": "PlexRename is running", "version": "2.0.0"}
 
 
