@@ -14,6 +14,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from logging.handlers import RotatingFileHandler
 from pydantic import BaseModel
@@ -99,6 +100,15 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+
+@app.get("/", include_in_schema=False)
+def serve_root():
+    """返回前端页面，如果缺失则提示服务运行"""
+    index_path = os.path.join("web", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "PlexRename is running", "version": "2.0.0"}
 
 
 @app.get("/api/health")
