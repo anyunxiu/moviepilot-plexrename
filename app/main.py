@@ -12,9 +12,10 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from logging.handlers import RotatingFileHandler
 from pydantic import BaseModel
@@ -43,6 +44,9 @@ metadata_client: MetadataClient = None
 organizer: FileOrganizer = None
 monitor: DirectoryMonitor = None
 LOG_FILE_PATH = "/app/logs/plexrename.log"
+BASE_DIR = Path(__file__).resolve().parent.parent
+WEB_DIR = BASE_DIR / "web"
+INDEX_PATH = WEB_DIR / "index.html"
 
 
 @asynccontextmanager
@@ -105,10 +109,17 @@ app = FastAPI(
 @app.get("/", include_in_schema=False)
 def serve_root():
     """返回前端页面，如果缺失则提示服务运行"""
-    index_path = os.path.join("web", "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "PlexRename is running", "version": "2.0.0"}
+    if INDEX_PATH.exists():
+        return FileResponse(str(INDEX_PATH))
+    fallback_html = """
+    <!doctype html>
+    <html><head><meta charset='utf-8'><title>PlexRename</title></head>
+    <body style="font-family:Arial;padding:32px;">
+      <h2>PlexRename 服务运行中</h2>
+      <p>前端文件缺失或未挂载到 /app/web。请确认镜像构建时包含 web/index.html，或将 web 目录挂载到容器 /app/web。</p>
+    </body></html>
+    """
+    return HTMLResponse(content=fallback_html, media_type="text/html")
 
 
 @app.get("/api/health")
@@ -238,7 +249,7 @@ def remove_directory_api(source_path: str = Query(..., description="要移除的
 
 # 静态文件（Web UI）
 try:
-    app.mount("/", StaticFiles(directory="web", html=True, check_dir=False), name="static")
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True, check_dir=False), name="static")
 except RuntimeError:
     logger.warning("Web UI not found, only API available")
 
