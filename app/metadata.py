@@ -80,6 +80,7 @@ class MetadataClient:
         tmdb_id: Optional[int],
     ) -> Optional[Dict[str, Any]]:
         """搜索电影"""
+        title = str(title)
         try:
             # 精确 ID 查询
             if tmdb_id:
@@ -105,10 +106,11 @@ class MetadataClient:
             
         except Exception as e:
             logger.error(f"Movie search failed: {e}")
-            return None
+            return self._fallback_metadata(title, year, "movie")
     
     def _search_tv(self, title: str, year: Optional[str], tmdb_id: Optional[int]) -> Optional[Dict[str, Any]]:
         """搜索电视剧"""
+        title = str(title)
         try:
             # 精确 ID 查询
             if tmdb_id:
@@ -134,7 +136,7 @@ class MetadataClient:
             
         except Exception as e:
             logger.error(f"TV search failed: {e}")
-            return None
+            return self._fallback_metadata(title, year, "tv")
     
     def _format_movie_metadata(self, details) -> Dict[str, Any]:
         """格式化电影元数据"""
