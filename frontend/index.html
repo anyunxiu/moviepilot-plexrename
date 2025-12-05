@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Plex Rename Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --accent: #22d3ee;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.12), transparent 30%),
+                  radial-gradient(circle at 80% 10%, rgba(16,185,129,0.12), transparent 30%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0.02em; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(34,211,238,0.12);
+      border: 1px solid rgba(34,211,238,0.4);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    main { padding: 0 24px 24px; display: grid; gap: 16px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(148,163,184,0.12);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 18px; }
+    .row { display: flex; align-items: center; gap: 12px; }
+    button {
+      background: var(--accent);
+      color: #0b1021;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 12px 30px rgba(34,211,238,0.25);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    button.secondary { background: rgba(148,163,184,0.12); color: var(--text); box-shadow: none; }
+    button:hover { transform: translateY(-1px); box-shadow: 0 16px 35px rgba(34,211,238,0.35); }
+    button.secondary:hover { box-shadow: 0 10px 24px rgba(0,0,0,0.3); }
+    .toggle {
+      width: 56px; height: 28px; border-radius: 20px;
+      background: rgba(148,163,184,0.4);
+      position: relative; cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .toggle::after {
+      content: ""; position: absolute; width: 24px; height: 24px;
+      border-radius: 50%; background: #fff; top: 2px; left: 2px;
+      transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .toggle.on { background: rgba(34,211,238,0.6); }
+    .toggle.on::after { transform: translateX(28px); background: #0b1021; }
+    .logs, .messages { font-family: "SFMono-Regular", "Consolas", monospace; font-size: 13px; max-height: 280px; overflow-y: auto; background: #0b1225; border-radius: 10px; padding: 12px; border: 1px solid rgba(148,163,184,0.12); }
+    .logs div, .messages div { padding: 4px 0; color: var(--muted); }
+    .messages .level-info { color: #67e8f9; }
+    .messages .level-debug { color: #94a3b8; }
+    .messages .level-error { color: #fca5a5; }
+    input[type="text"] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2); background: #0b1225; color: var(--text); }
+    .dir-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .dir-row span { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 700px) { header { flex-direction: column; align-items: flex-start; gap: 12px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Plex Rename</h1>
+      <div class="pill">Python 3.8 · FastAPI</div>
+    </div>
+    <div class="row">
+      <div id="watch-toggle" class="toggle"></div>
+      <button id="run-once">立即运行一次</button>
+    </div>
+  </header>
+  <main>
+    <div class="grid">
+      <div class="card">
+        <h2>目录监控</h2>
+        <div id="dir-list"></div>
+        <div class="dir-row" style="margin-top:12px;">
+          <input id="dir-input" type="text" placeholder="添加目录 (绝对路径)" />
+          <button class="secondary" id="add-dir">添加</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>消息中心</h2>
+        <div class="messages" id="messages"></div>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;">
+        <h2>日志</h2>
+        <div class="logs" id="logs"></div>
+      </div>
+    </div>
+  </main>
+<script>
+  const watchToggle = document.getElementById('watch-toggle');
+  const runOnceBtn = document.getElementById('run-once');
+  const dirList = document.getElementById('dir-list');
+  const dirInput = document.getElementById('dir-input');
+  const addDirBtn = document.getElementById('add-dir');
+  const messagesEl = document.getElementById('messages');
+  const logsEl = document.getElementById('logs');
+
+  async function fetchStatus() {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderStatus(data);
+  }
+
+  function renderStatus(data) {
+    watchToggle.classList.toggle('on', data.watching);
+    renderDirs(data.directories || []);
+    renderMessages(data.messages || []);
+    renderLogs(data.logs || []);
+  }
+
+  function renderDirs(dirs) {
+    dirList.innerHTML = '';
+    dirs.forEach((dir, idx) => {
+      const row = document.createElement('div');
+      row.className = 'dir-row';
+      const label = document.createElement('span');
+      label.textContent = dir.path;
+      const toggle = document.createElement('div');
+      toggle.className = 'toggle' + (dir.enabled ? ' on' : '');
+      toggle.onclick = () => {
+        dirs[idx].enabled = !dir.enabled;
+        saveDirs(dirs);
+      };
+      const remove = document.createElement('button');
+      remove.textContent = '移除';
+      remove.className = 'secondary';
+      remove.onclick = () => {
+        dirs.splice(idx, 1);
+        saveDirs(dirs);
+      };
+      row.appendChild(label);
+      row.appendChild(toggle);
+      row.appendChild(remove);
+      dirList.appendChild(row);
+    });
+  }
+
+  function renderMessages(list) {
+    messagesEl.innerHTML = '';
+    list.slice(-200).forEach(msg => {
+      const div = document.createElement('div');
+      div.className = `level-${msg.level}`;
+      div.textContent = `[${msg.level}] ${msg.text}`;
+      messagesEl.appendChild(div);
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function renderLogs(list) {
+    logsEl.innerHTML = '';
+    list.slice(-400).forEach(line => {
+      const div = document.createElement('div');
+      div.textContent = line;
+      logsEl.appendChild(div);
+    });
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  async function saveDirs(dirs) {
+    await fetch('/api/directories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directories: dirs })
+    });
+    fetchStatus();
+  }
+
+  watchToggle.onclick = async () => {
+    const enabled = !watchToggle.classList.contains('on');
+    await fetch('/api/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    fetchStatus();
+  };
+
+  runOnceBtn.onclick = async () => {
+    runOnceBtn.disabled = true;
+    await fetch('/api/run-once', { method: 'POST' });
+    runOnceBtn.disabled = false;
+    fetchStatus();
+  };
+
+  addDirBtn.onclick = () => {
+    const value = dirInput.value.trim();
+    if (!value) return;
+    const current = Array.from(dirList.querySelectorAll('span')).map(span => ({ path: span.textContent, enabled: true }));
+    current.push({ path: value, enabled: true });
+    dirInput.value = '';
+    saveDirs(current);
+  };
+
+  setInterval(fetchStatus, 4000);
+  fetchStatus();
+</script>
+</body>
+</html>
