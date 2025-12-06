@@ -47,7 +47,7 @@ def get_status():
         watching=watcher.running,
         processed=state.processed,
         directories=[DirectoryEntry(path=entry.path, enabled=entry.enabled) for entry in state.directories],
-        messages=[{\"level\": m.level, \"text\": m.text} for m in state.get_messages()],
+        messages=[{"level": m.level, "text": m.text} for m in state.get_messages()],
         logs=log_buffer.dump(),
     )
 
